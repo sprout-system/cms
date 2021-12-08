@@ -546,7 +546,7 @@ class BaseHandler(CommonRequestHandler):
         # the method unchanged and didn't specify anything, they must
         # have meant to keep the old password unchanged.
         elif old_method is not None and old_method != "plaintext" \
-                and method == old_method:
+                and old_method != "sso" and method == old_method:
             # Since the content of dest overwrites the current values
             # of the participation, by not adding anything to dest we
             # cause the current values to be kept.
