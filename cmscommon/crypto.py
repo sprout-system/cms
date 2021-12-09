@@ -183,11 +183,10 @@ def generate_valid_sso_keys(payload):
            (such as "<email>||<contest_id>")
 
     """
-    prefix = config.sso_login_key + "||" + payload
     current_time = int(time.time())
     time_min, time_max = current_time - 60, current_time + 60
-    valid_keys = [SHA512.new((prefix + "||" + str(x))
-                             .encode('utf-8')).hexdigest()
+    valid_keys = [SHA512.new((payload + "||" + str(x) + "||" +
+                              config.sso_login_key).encode('utf-8')).hexdigest()
                   for x in range(time_min, time_max)]
     return valid_keys
 
