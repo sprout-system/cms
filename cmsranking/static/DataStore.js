@@ -596,7 +596,7 @@ var DataStore = new function () {
                         self.set_score(u_id, t_id, data[u_id][t_id]);
                     }
                 }
-                self.init_ranks();
+                self.init_last_score_change();
             },
             error: function () {
                 console.error("Error while getting the scores");
@@ -779,11 +779,11 @@ var DataStore = new function () {
 
         // Sort it by decreasing score
         list.sort(function (a, b) {
-            return b["global"] - a["global"];
+            return -Config.compare_user(a, b);
         });
 
         // Assign ranks
-        var prev_score = null;
+        var prev_user = null;
         var rank = 0;
         var equal = 1;
 
@@ -791,10 +791,11 @@ var DataStore = new function () {
             user = list[i];
             score = user["global"];
 
-            if (score === prev_score) {
+          if (prev_user !== null &&
+            Config.compare_user(prev_user, user) === 0) {
                 equal += 1;
             } else {
-                prev_score = score;
+                prev_user = user;
                 rank += equal;
                 equal = 1;
             }
@@ -814,7 +815,7 @@ var DataStore = new function () {
             var new_rank = 1;
 
             for (var u_id in self.users) {
-                if (self.users[u_id]["global"] > user["global"]) {
+                if (Config.compare_user(self.users[u_id], user) === +1) {
                     new_rank += 1;
                 }
             }
@@ -857,7 +858,7 @@ var DataStore = new function () {
          */
 
         // We don't know old_score but we'll see that it's not needed.
-        var new_score = user["global"];
+        // var new_score = user["global"];
         var old_rank = user["rank"];
         // The new rank is computed by strictly applying the definition:
         //     new_rank = 1 + |{user2 in users, user2.score > user.score}|
@@ -867,16 +868,17 @@ var DataStore = new function () {
             var user2 = self.users[u2_id];
             // this condition is equivalent to
             //     old_score <= user2["global"] < new_score
-            if (old_rank >= user2["rank"] && user2["global"] < new_score) {
+            var cmp_result = Config.compare_user(user, user2);
+            if (old_rank >= user2["rank"] && cmp_result === +1) {
                 user2["rank"] += 1;
                 self.rank_events.fire(u2_id, user2, +1);
             // this condition is equivalent to
             //     new_score <= user2["global"] < old_score
-            } else if (new_score <= user2["global"] && user2["rank"] > old_rank) {
+            } else if (cmp_result !== +1 && user2["rank"] > old_rank) {
                 user2["rank"] -= 1;
                 self.rank_events.fire(u2_id, user2, -1);
             }
-            if (user2["global"] > new_score) {
+            if (cmp_result === -1) {
                 new_rank += 1;
             }
         }
@@ -969,6 +971,7 @@ var DataStore = new function () {
         self.es.addEventListener("score", function (event) {
             var timestamp = parseInt(event.lastEventId, 16) / 1000000;
             if (timestamp > self.score_init_time) {
+                self.last_score_change_listener(event);
                 self.score_listener(event);
             }
             self.last_event_id = event.lastEventId;

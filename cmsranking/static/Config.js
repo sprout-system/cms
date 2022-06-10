@@ -109,7 +109,6 @@ var Config = new function () {
             return 0;
         }
     };
-
     self.filter_user = function(user) {
         return true;
     };

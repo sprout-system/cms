@@ -177,6 +177,8 @@ var Scoreboard = new function () {
 
         result += " \
 <col class=\"score global\" data-sort_key=\"global\"/> <col/><col/><col/><col/>";
+        result += " \
+<col class=\"score score last_score_change_global\" data-sort_key=\"last_score_change_global\"/> <col/><col/><col/><col/>";
 
         return result;
     };
@@ -211,7 +213,10 @@ var Scoreboard = new function () {
         }
 
         result += " \
-    <th colspan=\"5\" class=\"score global\" data-sort_key=\"global\">Global</th> \
+    <th colspan=\"5\" class=\"score global\" data-sort_key=\"global\">Global</th>";
+        result += " \
+    <th colspan=\"5\" class=\"score last_score_change_global\" data-sort_key=\"last_score_change_global\">Last Change</th>"
+        result += " \
 </tr>";
 
         return result;
@@ -228,6 +233,38 @@ var Scoreboard = new function () {
         self.sort();
     };
 
+    self.get_relative_time = function(time) {
+        if (time === null) {
+            return null;
+        }
+        var contests = DataStore.contest_list;
+        var c = null;
+        for (var i in contests) {
+            var contest = contests[i];
+            if (time <= contest["end"]) {
+                c = contest;
+                break;
+            }
+        }
+        if (c === null) {
+            console.error("Last Score Change Not During Contest");
+            return null;
+        } else {
+            return time - c["begin"];
+        }
+    };
+
+    self.format_time = function(time, full) {
+        if (time === null)
+            return "-"; // did not submit anything
+        var h = Math.floor(time / 3600);
+        var m = Math.floor((time % 3600) / 60);
+        var s = Math.floor(time % 60);
+        h = full && h < 10 ? "0" + h : "" + h;
+        m = m < 10 ? "0" + m : "" + m;
+        s = s < 10 ? "0" + s : "" + s;
+        return (h + ":" + m + ":" + s);
+    };
 
     self.make_row = function (user) {
         // See the comment in .make_cols() for the reason we use colspans.
@@ -268,7 +305,12 @@ var Scoreboard = new function () {
 
         var score_class = self.get_score_class(user["global"], DataStore.global_max_score);
         result += " \
-    <td colspan=\"5\" class=\"score global " + score_class + "\" data-sort_key=\"global\">" + round_to_str(user["global"], DataStore.global_score_precision) + "</td> \
+    <td colspan=\"5\" class=\"score global " + score_class + "\" data-sort_key=\"global\">" + round_to_str(user["global"], DataStore.global_score_precision) + "</td>"
+
+        var last_score_change_time = self.get_relative_time(user["last_score_change_global"]);
+        result += " \
+    <td colspan=\"5\" class=\"score last_score_change_global\" data-sort_key=\"last_score_change_global\">" + self.format_time(last_score_change_time, false) + "</td>"
+        result += " \
 </tr>";
 
         return result;
@@ -301,11 +343,20 @@ var Scoreboard = new function () {
     // (where a < b means that a shoud go above b in the scoreboard)
     self.compare_users = function (a, b) {
         var sort_key = self.sort_key;
-        if ((a[sort_key] > b[sort_key]) || ((a[sort_key] == b[sort_key]) &&
-           ((a["global"] > b["global"]) || ((a["global"] == b["global"]) &&
-           ((a["l_name"] < b["l_name"]) || ((a["l_name"] == b["l_name"]) &&
-           ((a["f_name"] < b["f_name"]) || ((a["f_name"] == b["f_name"]) &&
-           (a["key"] <= b["key"]))))))))) {
+        if (a[sort_key] !== b[sort_key]) {
+            return a[sort_key] > b[sort_key] ? -1 : +1;
+        }
+        var cmp_result = Config.compare_user(a, b);
+        if (cmp_result !== 0) {
+          return -cmp_result;
+        }
+        if (a["l_name"] !== b["l_name"]) {
+            return a["l_name"] < b["l_name"] ? -1 : +1;
+        }
+        if (a["f_name"] !== b["f_name"]) {
+            return a["f_name"] < b["f_name"] ? -1 : +1;
+        }
+        if (a["key"] <= b["key"]) {
             return -1;
         } else {
             return +1;
@@ -448,6 +499,9 @@ var Scoreboard = new function () {
                 var task = DataStore.tasks[$this.data("task")];
                 var max_score = task["max_score"];
                 $this.text(round_to_str(score, task["score_precision"]));
+            } else if ($this.hasClass("last_score_change_global")) {
+                var last_score_change_time = self.get_relative_time(user["last_score_change_global"]);
+                $this.text(self.format_time(last_score_change_time, false));
             }
 
             // TODO we could user a data-* attribute to store the score class

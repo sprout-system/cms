@@ -279,9 +279,9 @@ class DataWatcher(EventSource):
     def callback(self, entity, event, key, *args):
         self.send(entity, "%s %s" % (event, key))
 
-    def score_callback(self, user, task, score):
+    def score_callback(self, user, task, score, time):
         # FIXME Use score_precision.
-        self.send("score", "%s %s %0.2f" % (user, task, score))
+        self.send("score", "%s %s %0.2f %d" % (user, task, score, time))
 
 
 class SubListHandler:
