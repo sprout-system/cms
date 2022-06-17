@@ -99,6 +99,6 @@ var Config = new function () {
     };
 
     self.filter_user = function(user) {
-        return true;
+        return user.startsWith('sprout-alumni');
     };
 };
