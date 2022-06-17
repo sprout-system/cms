@@ -74,18 +74,6 @@ var Config = new function () {
         return "history";
     };
 
-    self.compare_user_OI_style = function(a, b) {
-        var a_score = a["global"];
-        var b_score = b["global"];
-        if (a_score > b_score) {
-            return +1;
-        } else if (a_score < b_score) {
-            return -1;
-        } else {
-            return 0;
-        }
-    };
-
     // return +1 if "a" is strictly better than "b"
     //        -1 if "a" is strictly worse  than "b"
     //        0  if they should have same rank
@@ -111,6 +99,9 @@ var Config = new function () {
     };
 
     self.filter_user = function(user) {
-        return true;
+        // just an example
+        // assume f_name are user0, user1, ... user9
+        var i = parseInt(user["f_name"][4], 10);
+        return i <= 3;
     };
 };
