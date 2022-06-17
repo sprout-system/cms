@@ -99,6 +99,6 @@ var Config = new function () {
     };
 
     self.filter_user = function(user) {
-        return !user["f_name"][4].startsWith('sprout-alumni');
+        return !user["l_name"].startsWith('sprout-alumni');
     };
 };
