@@ -332,7 +332,8 @@ class SSOLoginHandler(ContestHandler):
         self.sql_session.add(user)
         try:
             self.sql_session.commit()
-        except IntegrityError:
+        except IntegrityError as error:
+            logger.error("SSO: IntegrityError %s" % error)
             logger.info("SSO: failed to create new user: %s", username)
         else:
             logger.info("SSO: successfully created new user: %s", username)
@@ -341,19 +342,20 @@ class SSOLoginHandler(ContestHandler):
         """Ensure the Participation exists.
 
         """
-        participation = self.sql_session.query(Participation) \
-            .join(Participation.user) \
-            .options(contains_eager(Participation.user)) \
-            .filter(Participation.contest == self.contest)\
-            .filter(User.username == username)\
-            .first()
-        if participation is not None:
-            return
 
+        logger.info("SSO: ensuring participation for user %s "
+                    "in contest %s", username, self.contest.name)
         user = self.sql_session.query(User) \
             .filter(User.username == username) \
             .first()
         assert user is not None
+
+        participation = self.sql_session.query(Participation) \
+                               .filter(Participation.user == user) \
+                               .filter(Participation.contest == self.contest) \
+                               .first()
+        if participation is not None:
+            return
 
         # TODO: Set correct ip restriction if needed
         ip_list = [ipaddress.ip_network("0.0.0.0/0")]

@@ -62,7 +62,7 @@ class Codename(TypeDecorator):
     @classmethod
     def get_create_command(cls):
         return DDL("CREATE DOMAIN %(domain)s VARCHAR "
-                   "CHECK (VALUE ~ '^[A-Za-z0-9_-]+$')",
+                   "CHECK (VALUE ~ '^[A-Za-z0-9@.+_-]+$')",
                    context={"domain": cls.domain_name})
 
     @classmethod
