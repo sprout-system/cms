@@ -74,18 +74,6 @@ var Config = new function () {
         return "history";
     };
 
-    self.compare_user_OI_style = function(a, b) {
-        var a_score = a["global"];
-        var b_score = b["global"];
-        if (a_score > b_score) {
-            return +1;
-        } else if (a_score < b_score) {
-            return -1;
-        } else {
-            return 0;
-        }
-    };
-
     // return +1 if "a" is strictly better than "b"
     //        -1 if "a" is strictly worse  than "b"
     //        0  if they should have same rank
@@ -109,7 +97,8 @@ var Config = new function () {
             return 0;
         }
     };
+
     self.filter_user = function(user) {
-        return true;
+        return user["l_name"].startsWith('sprout-alumni');
     };
 };

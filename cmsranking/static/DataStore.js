@@ -410,6 +410,10 @@ var DataStore = new function () {
     };
 
     self.create_user = function (key, data) {
+        if (Config.filter_user(data) === false) {
+            console.info("filter_user prevents the creation of user ", key);
+            return;
+        }
         if (data["team"] !== null && self.teams[data["team"]] === undefined)
         {
             console.error("Could not find team " + data["team"] + " for user " + key);
@@ -432,6 +436,10 @@ var DataStore = new function () {
     };
 
     self.update_user = function (key, data) {
+        if (Config.filter_user(data) === false) {
+            console.info("filter_user prevents the update of user ", key);
+            return;
+        }
         var old_data = self.users[key];
 
         data["key"] = key;
@@ -445,6 +453,10 @@ var DataStore = new function () {
     };
 
     self.delete_user = function (key) {
+        if (!(key in users)) {
+            console.log("Delete user ", key, " which does not exist");
+            return;
+        }
         var old_data = self.users[key];
 
         delete self.users[key];
@@ -584,7 +596,7 @@ var DataStore = new function () {
                         self.set_score(u_id, t_id, data[u_id][t_id]);
                     }
                 }
-                self.init_ranks();
+                self.init_last_score_change();
             },
             error: function () {
                 console.error("Error while getting the scores");
@@ -605,6 +617,10 @@ var DataStore = new function () {
         /* It may be "nice" to check that the user and task do actually exists,
            even if the server should already ensure it!
          */
+        if (!(u_id in self.users)) {
+            console.log("Set score for non-existing user ", u_id);
+            return;
+        }
         var user = self.users[u_id];
         var task = self.tasks[t_id];
 
@@ -651,6 +667,105 @@ var DataStore = new function () {
         return self.users[u_id]["global"];
     };
 
+    // Last score change
+    self.init_last_score_change = function() {
+        $.ajax({
+            url: Config.get_history_url(),
+            dataType: "json",
+            success: function (data) {
+                var d = new Object();
+                for (var u_id in self.users) {
+                    d[u_id] = new Object();
+                    for (var t_id in self.tasks) {
+                        d[u_id][t_id] = 0.0;
+                        self.users[u_id]["last_score_change_t_" + t_id] = null;
+                    }
+                    self.users[u_id]["last_score_change_global"] = null;
+                }
+                for (var i in data) {
+                    var user = data[i][0];
+                    var task = data[i][1];
+                    var time = data[i][2];
+                    var score = data[i][3];
+                    if (d[user]) {
+                        var old_score = d[user][task];
+                        d[user][task] = score;
+                        if (old_score !== score) {
+                            self.set_last_score_change(user, task, time);
+                            // self.users[user]["last_score_change"] = time;
+                        } else {
+                            // maybe backend have ensured that old_score !== score
+                        }
+                    }
+                }
+                self.init_ranks();
+            },
+            error: function () {
+                console.error("Error while getting the history (when init_last_score_change)");
+            }
+        });
+    };
+
+    self.last_score_change_listener = function(event) {
+        var data = event.data.split("\n");
+        for (var idx in data) {
+            var line = data[idx].split(" ");
+            self.set_last_score_change(line[0], line[1], parseInt(line[3], 10));
+        }
+    };
+
+    self.set_last_score_change = function(u_id, t_id, new_t_last_score_change) {
+        if (!(u_id in self.users)) {
+            console.log("Set score for non-existing user ", u_id);
+            return;
+        }
+        var user = self.users[u_id];
+        var task = self.tasks[t_id];
+
+        var c_id = task["contest"];
+        var contest = self.contests[c_id];
+
+        // Task
+        if (new_t_last_score_change === -1) {
+            new_t_last_score_change = null;
+        }
+        var old_t_last_score_change = user["last_score_change_t_" + t_id];
+        user["last_score_change_t_" + t_id] = new_t_last_score_change;
+
+        // Contest
+        function max(a, b) {
+            if (a === null || b === null)
+                return a === null ? b : a;
+            return a > b ? a : b;
+        }
+        var new_c_last_score_change = null;
+        for (var i = 0; i < contest.tasks.length; i += 1) {
+            var task_time = user["last_score_change_t_" + contest.tasks[i].key];
+            new_c_last_score_change = max(new_c_last_score_change, task_time);
+        }
+        var old_c_last_score_change = user["last_score_change_c_" + c_id];
+        user["last_score_change_c_" + c_id] = new_c_last_score_change;
+
+        // Global
+        var new_g_last_score_change = null;
+        for (var i = 0; i < self.contest_list.length; i += 1) {
+            var contest_time = user["last_score_change_c_" + self.contest_list[i].key];
+            new_g_last_score_change = max(new_g_last_score_change, contest_time);
+            // new_g_score += user["c_" + self.contest_list[i].key];
+        }
+        var old_g_last_score_change = user["last_score_change_global"];
+        user["last_score_change_global"] = new_g_last_score_change;
+
+        console.info("Changed last_score_change for user " + u_id + " and task " + t_id + ": " + old_t_last_score_change + " -> " + new_t_last_score_change);
+
+        if (new_g_last_score_change === null)
+            new_g_last_score_change = 0;
+        if (old_g_last_score_change === null)
+            old_g_last_score_change = 0;
+        var delta = -(new_g_last_score_change - old_g_last_score_change);
+        self.score_events.fire(u_id, user, t_id, task, delta);
+        // delta > 0 or delta < 0 denotes the css animation when update
+    };
 
     ////// Rank
 
@@ -664,11 +779,11 @@ var DataStore = new function () {
 
         // Sort it by decreasing score
         list.sort(function (a, b) {
-            return b["global"] - a["global"];
+            return -Config.compare_user(a, b);
         });
 
         // Assign ranks
-        var prev_score = null;
+        var prev_user = null;
         var rank = 0;
         var equal = 1;
 
@@ -676,10 +791,11 @@ var DataStore = new function () {
             user = list[i];
             score = user["global"];
 
-            if (score === prev_score) {
+          if (prev_user !== null &&
+            Config.compare_user(prev_user, user) === 0) {
                 equal += 1;
             } else {
-                prev_score = score;
+                prev_user = user;
                 rank += equal;
                 equal = 1;
             }
@@ -699,7 +815,7 @@ var DataStore = new function () {
             var new_rank = 1;
 
             for (var u_id in self.users) {
-                if (self.users[u_id]["global"] > user["global"]) {
+                if (Config.compare_user(self.users[u_id], user) === +1) {
                     new_rank += 1;
                 }
             }
@@ -742,7 +858,7 @@ var DataStore = new function () {
          */
 
         // We don't know old_score but we'll see that it's not needed.
-        var new_score = user["global"];
+        // var new_score = user["global"];
         var old_rank = user["rank"];
         // The new rank is computed by strictly applying the definition:
         //     new_rank = 1 + |{user2 in users, user2.score > user.score}|
@@ -752,16 +868,17 @@ var DataStore = new function () {
             var user2 = self.users[u2_id];
             // this condition is equivalent to
             //     old_score <= user2["global"] < new_score
-            if (old_rank >= user2["rank"] && user2["global"] < new_score) {
+            var cmp_result = Config.compare_user(user, user2);
+            if (old_rank >= user2["rank"] && cmp_result === +1) {
                 user2["rank"] += 1;
                 self.rank_events.fire(u2_id, user2, +1);
             // this condition is equivalent to
             //     new_score <= user2["global"] < old_score
-            } else if (new_score <= user2["global"] && user2["rank"] > old_rank) {
+            } else if (cmp_result !== +1 && user2["rank"] > old_rank) {
                 user2["rank"] -= 1;
                 self.rank_events.fire(u2_id, user2, -1);
             }
-            if (user2["global"] > new_score) {
+            if (cmp_result === -1) {
                 new_rank += 1;
             }
         }
@@ -854,6 +971,7 @@ var DataStore = new function () {
         self.es.addEventListener("score", function (event) {
             var timestamp = parseInt(event.lastEventId, 16) / 1000000;
             if (timestamp > self.score_init_time) {
+                self.last_score_change_listener(event);
                 self.score_listener(event);
             }
             self.last_event_id = event.lastEventId;
