@@ -38,7 +38,7 @@ from cmscommon.crypto import validate_password
 from cmscommon.datetime import make_datetime, make_timestamp
 
 
-__all__ = ["validate_login", "authenticate_request"]
+__all__ = ["validate_login", "validate_sso_request", "authenticate_request"]
 
 
 logger = logging.getLogger(__name__)
@@ -59,7 +59,8 @@ def get_password(participation):
 
 
 def validate_login(
-        sql_session, contest, timestamp, username, password, ip_address):
+        sql_session, contest, timestamp, username, password, ip_address,
+        bypass_ip_restriction=False):
     """Authenticate a user logging in, with username and password.
 
     Given the information the user provided (the username and the
@@ -80,6 +81,7 @@ def validate_login(
     password (str): the password the user provided.
     ip_address (IPv4Address|IPv6Address): the IP address the request
         came from.
+    bypass_ip_restriction (bool): whether to ignore ip address.
 
     return ((Participation, bytes)|(None, None)): if the user couldn't
         be authenticated then return None, otherwise return the
@@ -123,7 +125,8 @@ def validate_login(
         return None, None
 
     if contest.ip_restriction and participation.ip is not None \
-            and not any(ip_address in network for network in participation.ip):
+       and not any(ip_address in network for network in participation.ip) \
+       and not bypass_ip_restriction:
         log_failed_attempt("unauthorized IP address")
         return None, None
 
@@ -140,6 +143,30 @@ def validate_login(
     return (participation,
             json.dumps([username, correct_password, make_timestamp(timestamp)])
                 .encode("utf-8"))
+
+
+def validate_sso_request(
+        contest, timestamp, username, password, ip_address):
+    """Validate an sso request given the claimed username and password.
+
+    return (bool): whether the request is valid or not
+    """
+    def log_failed_attempt(msg, *args):
+        logger.info("Unsuccessful sso request from IP address %s, as user "
+                    "%r, on contest %s, at %s: " + msg, ip_address,
+                    username, contest.name, timestamp, *args)
+
+    correct_password = "sso:" + username + "||" + str(contest.id)
+    password_valid = validate_password(correct_password, password)
+
+    if not password_valid:
+        log_failed_attempt("wrong sso password")
+        return False
+
+    logger.info("Successful sso request from IP address %s, as user %r, on "
+                "contest %s, at %s", ip_address, username, contest.name,
+                timestamp)
+    return True
 
 
 class AmbiguousIPAddress(Exception):

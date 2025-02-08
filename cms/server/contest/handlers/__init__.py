@@ -28,6 +28,8 @@ from .communication import \
     QuestionHandler
 from .main import \
     LoginHandler, \
+    SSOLoginHandler, \
+    UserScoreHandler, \
     LogoutHandler, \
     RegistrationHandler, \
     StartHandler, \
@@ -59,6 +61,8 @@ HANDLERS = [
     # Main
 
     (r"/login", LoginHandler),
+    (r"/sso_login", SSOLoginHandler),
+    (r"/user_score", UserScoreHandler),
     (r"/logout", LogoutHandler),
     (r"/register", RegistrationHandler),
     (r"/start", StartHandler),

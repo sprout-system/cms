@@ -47,12 +47,17 @@ except ImportError:
     import tornado.web as tornado_web
 from sqlalchemy.orm.exc import NoResultFound
 
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import contains_eager
+
 from cms import config
 from cms.db import PrintJob, User, Participation, Team
 from cms.grading.languagemanager import get_language
+from cms.grading.scoring import task_score
 from cms.grading.steps import COMPILATION_MESSAGES, EVALUATION_MESSAGES
 from cms.server import multi_contest
-from cms.server.contest.authentication import validate_login
+from cms.server.contest.authentication import validate_login, \
+    validate_sso_request
 from cms.server.contest.communication import get_communications
 from cms.server.contest.printing import accept_print_job, PrintingDisabled, \
     UnacceptablePrintJob
@@ -249,6 +254,163 @@ class LoginHandler(ContestHandler):
             self.redirect(error_page)
         else:
             self.redirect(next_page)
+
+
+class SSOLoginHandler(ContestHandler):
+    """Single Sign-On Login Handler.
+
+    Will create user if not already exists.
+    """
+    def check_xsrf_cookie(self):
+        """Disable XSRF check on this endpoint
+
+        """
+        return None
+
+    @multi_contest
+    def post(self):
+        error_args = {"login_error": "true"}
+        error_page = self.contest_url(**error_args)
+
+        username = self.get_argument("username", "")
+        password = self.get_argument("password", "")
+
+        try:
+            ip_address = ipaddress.ip_address(str(self.request.remote_ip))
+        except ValueError:
+            logger.warning("Invalid IP address provided by Tornado: %s",
+                           self.request.remote_ip)
+            return None
+
+        valid_request = validate_sso_request(
+            self.contest, self.timestamp, username, password, ip_address)
+
+        if not valid_request:
+            self.redirect(error_page)
+            return None
+
+        realname = self.get_argument("realname", "")
+
+        self.ensure_user(username, realname)
+        self.ensure_participation(username)
+
+        # Try login again to validate ip address and contest restrictions
+        participation, cookie = validate_login(
+            self.sql_session, self.contest, self.timestamp, username, password,
+            ip_address)
+
+        if participation is None:
+            self.redirect(error_page)
+            return None
+
+        assert participation is not None and cookie is not None
+        cookie_name = self.contest.name + "_login"
+        self.set_secure_cookie(cookie_name, cookie, expires_days=None)
+        self.redirect(self.contest_url())
+
+    def ensure_user(self, username, realname):
+        """Ensure the User exists and has the correct name.
+
+        """
+        user = self.sql_session.query(User) \
+            .filter(User.username == username) \
+            .first()
+        if user is not None:
+            if user.last_name != realname:
+                user.last_name = realname
+                self.sql_session.commit()
+                self.application.service.proxy_service.reinitialize()
+                logger.info("SSO: successfully updated user: %s", username)
+            return
+
+        user = User(
+            username=username,
+            password="sso:" + username + "||" + "all",
+            first_name=username,
+            last_name=realname,
+        )
+        self.sql_session.add(user)
+        try:
+            self.sql_session.commit()
+        except IntegrityError as error:
+            logger.error("SSO: IntegrityError %s" % error)
+            logger.info("SSO: failed to create new user: %s", username)
+        else:
+            logger.info("SSO: successfully created new user: %s", username)
+
+    def ensure_participation(self, username):
+        """Ensure the Participation exists.
+
+        """
+
+        logger.info("SSO: ensuring participation for user %s "
+                    "in contest %s", username, self.contest.name)
+        user = self.sql_session.query(User) \
+            .filter(User.username == username) \
+            .first()
+        assert user is not None
+
+        participation = self.sql_session.query(Participation) \
+                               .filter(Participation.user == user) \
+                               .filter(Participation.contest == self.contest) \
+                               .first()
+        if participation is not None:
+            return
+
+        # TODO: Set correct ip restriction if needed
+        ip_list = [ipaddress.ip_network("0.0.0.0/0")]
+
+        participation = Participation(
+            contest=self.contest,
+            user=user,
+            password="sso:" + username + "||" + str(self.contest.id),
+            ip=ip_list,
+        )
+        self.sql_session.add(participation)
+        try:
+            self.sql_session.commit()
+        except IntegrityError:
+            logger.info("SSO: failed to create participation for user %s "
+                        "in contest %s", username, self.contest.name)
+        else:
+            logger.info("SSO: successfully created participation for user %s "
+                        "in contest %s", username, self.contest.name)
+
+
+class UserScoreHandler(ContestHandler):
+    """User Score handler. Return total score of a user.
+
+    """
+    def check_xsrf_cookie(self):
+        """Disable XSRF check on this endpoint
+
+        """
+        return None
+
+    @multi_contest
+    def post(self):
+        username = self.get_argument("username", "")
+        password = self.get_argument("password", "")
+
+        try:
+            ip_address = ipaddress.ip_address(str(self.request.remote_ip))
+        except ValueError:
+            logger.warning("Invalid IP address provided by Tornado: %s",
+                           self.request.remote_ip)
+            return None
+
+        participation, cookie = validate_login(
+            self.sql_session, self.contest, self.timestamp, username, password,
+            ip_address, bypass_ip_restriction=True)
+
+        score_s = 0.0
+        if participation is not None:
+            for task in self.contest.tasks:
+                t_score, _ = task_score(participation, task, rounded=True)
+                score_s += t_score
+
+        score_ss = str(round(score_s, self.contest.score_precision))
+        self.write(score_ss)
 
 
 class StartHandler(ContestHandler):

@@ -24,12 +24,16 @@
 
 import binascii
 import random
+import time
+
 from string import ascii_lowercase
 
 import bcrypt
 from Cryptodome import Random
 from Cryptodome.Cipher import AES
+from Cryptodome.Hash import SHA512
 
+from cms import config
 from cmscommon.binary import bin_to_hex, hex_to_bin, bin_to_b64, b64_to_bin
 
 
@@ -40,6 +44,7 @@ __all__ = [
     "encrypt_number", "decrypt_number",
 
     "generate_random_password",
+    "generate_valid_sso_keys",
 
     "validate_password", "build_password", "hash_password",
     "parse_authentication",
@@ -173,6 +178,19 @@ def parse_authentication(authentication):
     return method, payload
 
 
+def generate_valid_sso_keys(payload):
+    """Generate list of valid sso keys given the payload
+           (such as "<email>||<contest_id>")
+
+    """
+    current_time = int(time.time())
+    time_min, time_max = current_time - 60, current_time + 60
+    valid_keys = [SHA512.new((payload + "||" + str(x) + "||" +
+                              config.sso_login_key).encode('utf-8')).hexdigest()
+                  for x in range(time_min, time_max)]
+    return valid_keys
+
+
 def validate_password(authentication, password):
     """Validate the given password for the required authentication.
 
@@ -196,6 +214,9 @@ def validate_password(authentication, password):
             return False
     elif method == "plaintext":
         return payload == password
+    elif method == "sso":
+        valid_sso_keys = generate_valid_sso_keys(payload)
+        return password in valid_sso_keys
     else:
         raise ValueError("Authentication method not known.")
 
@@ -228,6 +249,8 @@ def hash_password(password, method="bcrypt"):
         password = password.encode('utf-8')
         payload = bcrypt.hashpw(password, bcrypt.gensalt()).decode('ascii')
     elif method == "plaintext":
+        payload = password
+    elif method == "sso":
         payload = password
     else:
         raise ValueError("Authentication method not known.")
