@@ -48,7 +48,6 @@ except ImportError:
 from sqlalchemy.orm.exc import NoResultFound
 
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import contains_eager
 
 from cms import config
 from cms.db import PrintJob, User, Participation, Team
