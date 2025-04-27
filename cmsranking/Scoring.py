@@ -275,7 +275,8 @@ class ScoringStore:
         """Add a callback to be called when a score changes.
 
         Callbacks can be any kind of callable objects. They must
-        accept three arguments: the user, the task and the new score.
+        accept four arguments: the user, the task, the new score
+        and the new time.
 
         """
         self._callbacks.append(callback)
